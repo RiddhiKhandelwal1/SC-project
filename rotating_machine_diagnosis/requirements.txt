@@ -1,0 +1,25 @@
+# Rotating Machine Fault Diagnosis — Dependencies
+# Python 3.9+
+
+# Core scientific
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+
+# Machine Learning
+scikit-learn>=1.3.0
+
+# Deep Learning (TensorFlow/Keras only)
+tensorflow>=2.13.0
+
+# Fuzzy Logic
+scikit-fuzzy>=0.4.2
+
+# Visualization
+matplotlib>=3.7.0
+
+# Web Dashboard
+streamlit>=1.28.0
+
+# Testing
+pytest>=7.4.0
