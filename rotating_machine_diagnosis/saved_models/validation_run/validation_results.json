@@ -1,0 +1,21 @@
+{
+  "epochs_trained": 40,
+  "best_epoch": 40,
+  "train_accuracy": 1.0,
+  "val_accuracy": 1.0,
+  "test_accuracy": 1.0,
+  "train_loss": 0.0034992920700460672,
+  "val_loss": 4.062052539666183e-05,
+  "test_loss": 3.983205169788562e-05,
+  "train_val_acc_gap": 0.0,
+  "val_test_acc_gap": 0.0,
+  "overfitting": false,
+  "underfitting": false,
+  "class_names": [
+    "bearing_fault",
+    "gear_fault",
+    "misalignment",
+    "normal",
+    "unbalance"
+  ]
+}

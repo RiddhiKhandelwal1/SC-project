@@ -1,0 +1,16 @@
+{
+  "idx_to_class": {
+    "0": "bearing_fault",
+    "1": "gear_fault",
+    "2": "misalignment",
+    "3": "normal",
+    "4": "unbalance"
+  },
+  "class_to_idx": {
+    "bearing_fault": 0,
+    "gear_fault": 1,
+    "misalignment": 2,
+    "normal": 3,
+    "unbalance": 4
+  }
+}

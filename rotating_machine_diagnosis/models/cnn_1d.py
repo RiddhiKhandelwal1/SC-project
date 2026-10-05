@@ -45,22 +45,14 @@ def build_cnn1d_branch(
     inp = layers.Input(shape=input_shape, name=f"{name}_input")
     x = inp
 
-    # Block 1
-    x = layers.Conv1D(filters[0], kernels[0], padding="same", name=f"{name}_conv1")(x)
-    x = layers.BatchNormalization(name=f"{name}_bn1")(x)
-    x = layers.ReLU(name=f"{name}_relu1")(x)
-    x = layers.MaxPooling1D(pool_size=2, name=f"{name}_pool1")(x)
-
-    # Block 2
-    x = layers.Conv1D(filters[1], kernels[1], padding="same", name=f"{name}_conv2")(x)
-    x = layers.BatchNormalization(name=f"{name}_bn2")(x)
-    x = layers.ReLU(name=f"{name}_relu2")(x)
-    x = layers.MaxPooling1D(pool_size=2, name=f"{name}_pool2")(x)
-
-    # Block 3
-    x = layers.Conv1D(filters[2], kernels[2], padding="same", name=f"{name}_conv3")(x)
-    x = layers.BatchNormalization(name=f"{name}_bn3")(x)
-    x = layers.ReLU(name=f"{name}_relu3")(x)
+    # Dynamic Conv blocks based on config
+    for i, (f, k) in enumerate(zip(filters, kernels)):
+        x = layers.Conv1D(f, k, padding="same", name=f"{name}_conv{i+1}")(x)
+        x = layers.BatchNormalization(name=f"{name}_bn{i+1}")(x)
+        x = layers.ReLU(name=f"{name}_relu{i+1}")(x)
+        # Add pooling on all blocks except the last
+        if i < len(filters) - 1:
+            x = layers.MaxPooling1D(pool_size=2, name=f"{name}_pool{i+1}")(x)
 
     # Global Average Pooling → Feature Vector
     x = layers.GlobalAveragePooling1D(name=f"{name}_gap")(x)

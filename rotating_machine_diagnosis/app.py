@@ -626,20 +626,21 @@ elif page == "🧠 Model Training":
         st.markdown("**Signal Processing**")
         fs = st.number_input("Sampling Freq (Hz)", 100, 100000,
                              int(st.session_state.preprocess_config.sampling_frequency), key="train_fs")
-        window_size = st.number_input("Window Size", 256, 8192, 2048, 256, key="train_ws")
+        window_size = st.number_input("Window Size", 256, 8192, 1024, 256, key="train_ws")
         overlap = st.slider("Window Overlap", 0.0, 0.9, 0.5, 0.1, key="train_ov")
 
     with col_t2:
         st.markdown("**STFT Parameters**")
-        n_fft = st.number_input("n_fft", 64, 2048, 256, key="train_nfft")
-        hop = st.number_input("hop_length", 16, 512, 64, key="train_hop")
-        seq_len = st.number_input("Sequence Length (BiLSTM)", 1, 20, 5, key="train_seq")
+        n_fft = st.number_input("n_fft", 64, 2048, 128, key="train_nfft")
+        hop = st.number_input("hop_length", 16, 512, 32, key="train_hop")
+        seq_len = st.number_input("Sequence Length (BiLSTM)", 1, 20, 1, key="train_seq",
+                                  help="Use 1 for faster training. Higher values add temporal context.")
 
     with col_t3:
         st.markdown("**Training Hyper-parameters**")
         batch_size = st.selectbox("Batch Size", [16, 32, 64, 128], index=1)
-        epochs = st.number_input("Max Epochs", 5, 200, 50)
-        lr = st.select_slider("Learning Rate", [1e-4, 5e-4, 1e-3, 5e-3, 1e-2], value=1e-3)
+        epochs = st.number_input("Max Epochs", 5, 200, 20)
+        lr = st.select_slider("Learning Rate", [1e-4, 5e-4, 1e-3, 5e-3, 1e-2], value=5e-4)
         val_split = st.slider("Validation Split", 0.05, 0.3, 0.15, 0.05)
         test_split = st.slider("Test Split", 0.05, 0.3, 0.15, 0.05)
 
@@ -667,26 +668,66 @@ elif page == "🧠 Model Training":
         progress_bar = st.progress(0, text="Preparing data...")
 
         try:
-            # Step 1: Extract & preprocess
+            # Step 1: Extract & preprocess PER-RUN
+            # Critical: windowing must operate on contiguous signal from the
+            # same run to avoid mixing fault classes within a single window.
             progress_bar.progress(5, text="Extracting vibration signal...")
-            raw_signal = extract_vibration_signal(df, mapping)
-            labels = extract_labels(df, mapping)
             meta = extract_metadata(df, mapping)
+            run_ids_col = meta.get("run_id")
 
-            # Step 2: Preprocess
+            # Step 2: Fit normalizer on entire signal
             progress_bar.progress(10, text="Preprocessing signal...")
-            processed, normalizer = preprocess_signal(raw_signal, pp_config)
+            raw_signal = extract_vibration_signal(df, mapping)
+            from preprocessing.signal_processing import apply_filter, handle_missing_values, Normalizer as Norm
+            normalizer = Norm(method=pp_config.normalization_method)
+            normalizer.fit(raw_signal)
             st.session_state.normalizer = normalizer
 
-            # Step 3: Windowing
-            progress_bar.progress(20, text="Generating windows...")
-            windows = generate_windows(
-                processed, wc,
-                labels=labels,
-                run_ids=meta.get("run_id"),
-                machine_ids=meta.get("machine_id"),
-                source_file="training_data",
-            )
+            # Step 3: Window PER-RUN to keep temporal order
+            progress_bar.progress(20, text="Generating windows per-run...")
+            labels = extract_labels(df, mapping)
+
+            all_windows = []
+            if run_ids_col is not None:
+                # Group by run and window each run separately
+                df_temp = df.copy()
+                df_temp["__label__"] = labels if labels is not None else None
+                df_temp["__run_id__"] = run_ids_col
+
+                for run_id_val, run_df in df_temp.groupby("__run_id__", sort=False):
+                    run_signal = run_df[mapping.vibration].values.astype(np.float64)
+                    run_labels = run_df["__label__"].values if labels is not None else None
+                    run_runs = run_df["__run_id__"].values
+
+                    clean = handle_missing_values(run_signal, pp_config.missing_value_strategy)
+                    if pp_config.filter_enabled:
+                        filtered = apply_filter(clean, pp_config)
+                    else:
+                        filtered = clean
+                    processed = normalizer.transform(filtered)
+
+                    run_windows = generate_windows(
+                        processed, wc,
+                        labels=run_labels,
+                        run_ids=run_runs,
+                        source_file="training_data",
+                    )
+                    all_windows.extend(run_windows)
+            else:
+                # No run_id — treat as single run (windowing is safe)
+                processed, normalizer = preprocess_signal(raw_signal, pp_config)
+                st.session_state.normalizer = normalizer
+                all_windows = generate_windows(
+                    processed, wc,
+                    labels=labels,
+                    source_file="training_data",
+                )
+
+            # Re-assign sequential window IDs
+            for i, w in enumerate(all_windows):
+                w.window_id = i
+
+            windows = all_windows
 
             # Filter windows with labels
             windows = [w for w in windows if w.label is not None]
@@ -696,21 +737,68 @@ elif page == "🧠 Model Training":
                          f"Need more data or smaller window size.")
                 st.stop()
 
-            st.info(f"Generated **{len(windows):,}** labeled windows")
+            st.info(f"Generated **{len(windows):,}** labeled windows (per-run windowing)")
 
-            # Step 4: Split
-            progress_bar.progress(30, text="Splitting dataset...")
-            split = group_level_split(windows, val_ratio=val_split, test_ratio=test_split,
-                                      seed=mc.random_seed)
+            # Step 4: Group-level split (prevents data leakage)
+            # Windows from the same run must NOT appear in both train and test.
+            progress_bar.progress(30, text="Splitting dataset by run groups...")
 
-            if split["leakage_warning"]:
-                st.warning(
-                    "⚠️ **Data Leakage Warning**: No run_id or machine_id found. "
-                    "Windows are randomly split, which may produce optimistic results "
-                    "if overlapping windows share the same recording."
+            has_run_ids = any(w.run_id is not None for w in windows)
+
+            if has_run_ids:
+                # Group-level split: entire runs go to train, val, or test
+                split = group_level_split(
+                    windows,
+                    val_ratio=val_split,
+                    test_ratio=test_split,
+                    seed=mc.random_seed,
                 )
+                split_method = "group-level (by run_id)"
+                if split.get("leakage_warning", False):
+                    st.warning("⚠️ Fell back to random split — potential data leakage.")
+                    split_method = "random (no run_id groups found)"
+            else:
+                # Fallback: stratified window-level split (no run_id available)
+                from sklearn.model_selection import train_test_split as sk_split
+                window_labels = np.array([w.label for w in windows])
+                indices = np.arange(len(windows))
+                total_test = val_split + test_split
+                train_idx, temp_idx = sk_split(
+                    indices, test_size=total_test,
+                    stratify=window_labels, random_state=mc.random_seed
+                )
+                if test_split > 0 and len(temp_idx) > 1:
+                    relative_test = test_split / total_test
+                    val_idx, test_idx = sk_split(
+                        temp_idx, test_size=relative_test,
+                        stratify=window_labels[temp_idx], random_state=mc.random_seed
+                    )
+                else:
+                    val_idx = temp_idx
+                    test_idx = np.array([], dtype=int)
+                split = {
+                    "train": [windows[i] for i in train_idx],
+                    "val": [windows[i] for i in val_idx],
+                    "test": [windows[i] for i in test_idx],
+                }
+                split_method = "stratified window-level (no run_id column)"
+                st.warning("⚠️ No run_id column found — using stratified window-level split. "
+                           "This may leak data between train/test.")
 
-            st.info(f"Train: {len(split['train']):,} | Val: {len(split['val']):,} | Test: {len(split['test']):,}")
+            # Data augmentation: add 2 noise copies (3x total) to training set
+            import copy
+            original_train = list(split["train"])
+            augmented = list(original_train)
+            for noise_std in [0.05, 0.10]:
+                for w in original_train:
+                    aug_w = copy.deepcopy(w)
+                    aug_w.data = w.data + np.random.randn(len(w.data)) * noise_std
+                    augmented.append(aug_w)
+            split["train"] = augmented
+
+            st.info(f"Split: {split_method}\n\n"
+                    f"Train: {len(split['train']):,} (3x augmented) | "
+                    f"Val: {len(split['val']):,} | Test: {len(split['test']):,}")
 
             # Step 5: Train
             progress_bar.progress(40, text="Building model and starting training...")
@@ -738,17 +826,27 @@ elif page == "🧠 Model Training":
             progress_bar.progress(90, text="Evaluating on test set...")
 
             # Step 6: Evaluate on test set
-            from models.train import prepare_training_data
             from evaluation.metrics import compute_metrics, get_predictions
+            from models.train import encode_labels
+            from models.hybrid_model import prepare_sequences
+            from preprocessing.spectrogram import batch_spectrograms
 
             test_windows = split["test"]
             if len(test_windows) > 0:
-                (test_wav, test_spec, test_labels,
-                 _, _, _, _) = prepare_training_data(test_windows, sc, float(fs), seq_len)
+                # Prepare test data directly (avoids sequence mixing issues)
+                test_waveforms = np.array([w.data for w in test_windows], dtype=np.float32)[..., np.newaxis]
+                test_specs = batch_spectrograms(test_windows, sc, float(fs), normalize=True).astype(np.float32)
+                test_labels_enc, _, _ = encode_labels(test_windows)
 
-                test_preds = get_predictions(results["model"], test_wav, test_spec)
+                # Use same sequence_length as training model
+                eval_seq_len = mc.sequence_length
+                test_wav_seq, test_spec_seq, test_label_seq = prepare_sequences(
+                    test_waveforms, test_specs, test_labels_enc, eval_seq_len
+                )
 
-                metrics = compute_metrics(test_labels, test_preds, results["idx_to_class"])
+                test_preds = get_predictions(results["model"], test_wav_seq, test_spec_seq)
+
+                metrics = compute_metrics(test_label_seq, test_preds, results["idx_to_class"])
 
                 progress_bar.progress(100, text="✅ Training complete!")
 

@@ -117,29 +117,29 @@ class STFTConfig:
 @dataclass
 class ModelConfig:
     """Hybrid CNN-BiLSTM model and training parameters."""
-    # 1D CNN
-    cnn1d_filters: List[int] = field(default_factory=lambda: [32, 64, 128])
-    cnn1d_kernel_sizes: List[int] = field(default_factory=lambda: [7, 5, 3])
+    # 1D CNN — smaller to prevent overfitting
+    cnn1d_filters: List[int] = field(default_factory=lambda: [16, 32])
+    cnn1d_kernel_sizes: List[int] = field(default_factory=lambda: [7, 5])
 
     # 2D CNN
-    cnn2d_filters: List[int] = field(default_factory=lambda: [32, 64])
+    cnn2d_filters: List[int] = field(default_factory=lambda: [16, 32])
     cnn2d_kernel_sizes: List[int] = field(default_factory=lambda: [3, 3])
 
     # BiLSTM
-    lstm_units: int = 64
-    sequence_length: int = 5  # number of consecutive windows
+    lstm_units: int = 16
+    sequence_length: int = 1  # 1 = single-window mode (faster)
 
     # Dense / output
-    dense_units: int = 64
-    dropout_rate: float = 0.3
+    dense_units: int = 32
+    dropout_rate: float = 0.5
     num_classes: int = 0  # auto-determined from data
 
     # Training
     batch_size: int = 32
-    epochs: int = 50
-    learning_rate: float = 1e-3
-    early_stopping_patience: int = 7
-    lr_reduce_patience: int = 3
+    epochs: int = 30
+    learning_rate: float = 5e-4
+    early_stopping_patience: int = 10
+    lr_reduce_patience: int = 4
     lr_reduce_factor: float = 0.5
     validation_split: float = 0.15
     test_split: float = 0.15

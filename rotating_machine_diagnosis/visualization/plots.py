@@ -214,6 +214,11 @@ def plot_confusion_matrix(
     im = ax.imshow(cm, interpolation="nearest", cmap="Blues")
     fig.colorbar(im, ax=ax)
 
+    # Ensure class_names matches CM dimensions
+    if len(class_names) != n_classes:
+        class_names = class_names[:n_classes] if len(class_names) > n_classes else \
+            class_names + [f"class_{i}" for i in range(len(class_names), n_classes)]
+
     ax.set_xticks(range(n_classes))
     ax.set_yticks(range(n_classes))
     ax.set_xticklabels(class_names, rotation=45, ha="right", fontsize=9)

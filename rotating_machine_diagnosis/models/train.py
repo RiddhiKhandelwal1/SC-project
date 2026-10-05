@@ -175,34 +175,45 @@ def train_model(
             monitor="val_loss",
             patience=model_config.early_stopping_patience,
             restore_best_weights=True,
-            verbose=1,
+            verbose=0,
         ),
         ReduceLROnPlateau(
             monitor="val_loss",
             factor=model_config.lr_reduce_factor,
             patience=model_config.lr_reduce_patience,
             min_lr=1e-7,
-            verbose=1,
+            verbose=0,
         ),
         ModelCheckpoint(
             checkpoint_path,
             monitor="val_loss",
             save_best_only=True,
-            verbose=1,
+            verbose=0,
         ),
     ]
 
     # ── Train ──
-    history = model.fit(
-        [train_wav, train_spec],
-        train_labels,
-        validation_data=([val_wav, val_spec], val_labels),
-        epochs=model_config.epochs,
-        batch_size=model_config.batch_size,
-        class_weight=class_weights,
-        callbacks=callbacks,
-        verbose=1,
-    )
+    # Redirect stdout/stderr during training to avoid OSError [Errno 5]
+    # when running inside Streamlit (stdout may not be a real terminal)
+    import io
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    try:
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+        history = model.fit(
+            [train_wav, train_spec],
+            train_labels,
+            validation_data=([val_wav, val_spec], val_labels),
+            epochs=model_config.epochs,
+            batch_size=model_config.batch_size,
+            class_weight=class_weights,
+            callbacks=callbacks,
+            verbose=0,
+        )
+    finally:
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
 
     # ── Save artifacts ──
     model.save(os.path.join(save_dir, "full_model.keras"))

@@ -1,0 +1,27 @@
+{
+  "num_classes": 5,
+  "class_mapping": {
+    "0": "bearing_fault",
+    "1": "gear_fault",
+    "2": "misalignment",
+    "3": "normal",
+    "4": "unbalance"
+  },
+  "waveform_shape": [
+    1024,
+    1
+  ],
+  "spectrogram_shape": [
+    65,
+    33,
+    1
+  ],
+  "sequence_length": 1,
+  "train_samples": 1848,
+  "val_samples": 132,
+  "epochs_trained": 18,
+  "final_train_loss": 0.1131569892168045,
+  "final_val_loss": 2.6669814586639404,
+  "final_train_accuracy": 0.9788960814476013,
+  "final_val_accuracy": 0.6666666865348816
+}

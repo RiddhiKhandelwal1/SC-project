@@ -184,6 +184,7 @@ def generate_synthetic_dataset(
             global_idx += 1
 
     df = pd.DataFrame(all_data)
-    # Shuffle rows (but keep run_id for group-level splitting)
-    df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
+    # NOTE: Do NOT shuffle rows — windowing requires temporal order
+    # within each run. The group-level or stratified split handles
+    # train/val/test separation properly.
     return df
